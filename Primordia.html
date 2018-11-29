@@ -1,0 +1,1739 @@
+<style>
+BODY, TD		{ font:12px monospace; color:#4aa; }
+.World		{ font:8px monospace; line-height:4px;/*6*/ white-space:pre; display:table; padding:5px; color:#aaa; border:solid 1px #ddf; }
+.Area		{ width:120px; font:10px monospace; line-height:7px;/*10*/ white-space:pre; display:table; padding:5px; color:#aaa; border:solid 1px #fdf; }
+.Info		{ font:12px monospace; white-space:pre; padding:5px; color:#4aa; }
+.Status	{ font:12px monospace; white-space:pre; padding:5px; color:#d99; }
+.History	{ font:8px monospace; line-height:4px; white-space:pre; color:#9d9; border:solid 1px #dfd; }
+.Animal	{ font:12px monospace; color:#44a; border:solid 1px #9d9; width:100%; }
+.Help,
+.Help TD		{ font:12px monospace; line-height:14px; color:#4aa; }
+.Help			{ width:850px; top:50px; left:50px; display:none; position:absolute; background:white; border:solid 5px #9d9; padding:30px; white-space:pre-wrap; }
+.Help TD		{ white-space:pre; }
+.Matrix		{ width:400px; height:400px; overflow:scroll; }
+.Matrix TD,
+.Matrix TH	{ font:12px monospace; white-space:pre; padding:1px; text-align:center; }
+.Matrix TH	{ font-weight:bold; }
+.MatrixLink			{ font:16px monospace !important; border:solid 1px #9d9; cursor:hand; display:table; }
+.MatrixHasAnimal	{ color:#f55; background-color:#fee;  }
+.MatrixCurrent		{ background-color:#9ef !important;  }
+.MatrixLink SPAN:hover	{ background-color:#afa; }
+INPUT, SELECT, LABEL		{ cursor:hand; }
+/*
+"Lucida Console", Monaco, monospace
+"Courier New", Courier, monospace
+*/
+</style>
+<div id="Info" class="Info"></div>
+<TABLE><TR valign=top><TD>
+<table width=100%><tr valign=top><td>
+<div id="World" class="World" onmouseup="HandleSelect();"></div>
+</td><td>
+<div id="Field" class="World"></div>
+<!--/td><td>
+<div id="Field2" class="World"></div-->
+<!--/td><td>
+<div id="OffsetY" class="World"></div-->
+<!--/td><td>
+<div id="OffsetX" class="World"></div-->
+</td></tr></table>
+
+<table><tr valign=top><td width=270>
+<div id="Status" class="Status"></div>
+</td><td>
+<div id="Status2" class="Status"></div>
+</td></tr></table>
+
+<div id="History" class="History"></div>
+</TD><TD>
+<div id="Area" class="Area"></div>
+</TD><TD>
+<input type="radio" id="Radio1a" onclick="InfoPanel1.style.display='';InfoPanel2.style.display='none'; sortByType=0; ShowAnimals(); ShowDetected();" name="Radios" checked><label for="Radio1a">Animals (by Rule)</label>
+<input type="radio" id="Radio1b" onclick="InfoPanel1.style.display='';InfoPanel2.style.display='none'; sortByType=1; ShowAnimals(); ShowDetected();" name="Radios"><label for="Radio1b">(by Type)</label>
+<input type="radio" id="Radio2" onclick="InfoPanel2.style.display='';InfoPanel1.style.display='none';" name="Radios"><label for="Radio2">Rule Space</label>
+<br><br>
+<div id="InfoPanel2" style="display:none;">
+<div id="Matrix" class="Matrix"></div>
+</div>
+<div id="InfoPanel1">
+<select id="Animal" class="Animal" size=15 onchange="SelectAnimal(this)"></select>
+<br><br>
+Detected: <u onclick="ClearDetected();" style="cursor:hand;">clear</u><br>
+<select id="Detected" class="Animal" size=10 onchange="SelectAnimal(this)"></select>
+</div>
+</TD></TR></TABLE>
+<div id="Log" class="Status"></div>
+<div id="Watch" class="Status"></div>
+<div id="Help" class="Help"></div>
+
+<script src="Primordia-Animals.js"></script>
+<script src="Primordia-Rules.js"></script>
+<script src="MersenneTwister19937.js"></script>
+<script>
+var H0 = 80; //100
+var W0 = 140; //120
+var AREA_HISTORY = 1999;
+var MAS_HISTORY = 120;
+var DEF_DENSITY = 0.2;
+var HISTORY_LEVEL = 10;
+var AREA_TYPES = {"OVR":"Overcrowd", "MOV":"Moving animal", "STA":"Stationary animal", "OSC":"Oscillator", "STL":"Still life", "CRD":"Evolving crowd"};
+var AREA_COLORS = {"OVR":"#c6f", "MOV":"#f66", "STA":"#66f", "OSC":"#6cf", "STL":"#6c6", "CRD":"#aaa"};
+var ANIM_TYPES = {"DS":1,"RS":1,"BS":1,"OS":0, "DM":1,"RM":1,"BM":1,"OM":0, "DL":1,"RL":1,"BL":1,"OL":1, "DX":1,"RX":1,"BX":1,"OX":1};
+var ANIM_DESCS = {"D":"Diagonal", "R":"Orthogonal", "B":"Oblique", "O":"Oscillating", "S":"Small", "M":"Medium", "L":"Large", "X":"Extra-large"};
+var RULE_DESCS = {"+":"Growing", "-":"Shrinking", "*":"Chaotic", "#":"Territorial"/*"Bubble/Sticky"*/};
+var OVR_VERIFY = 10;
+var AUTO_WAIT = 10;
+//var TRIAL_COUNT = 5;
+//var TRIAL_DENSITY = [0.1, 0.2, 0.5];
+var TRIAL_COUNT = 1;
+var TRIAL_DENSITY = [0.1];
+var TRIAL_MAX_GEN = 500;
+var TRIAL_OVERCROWD = 1;
+
+var states = 1;
+var pK = 3;
+var pL = 0;
+var pM = 1;
+var pN = 0;
+var maxN = states * 8;
+var masArrStep = 8;
+var currRuleSt = "";
+
+var isOccupied = false;
+var isOverflow = false;
+var isRunning = true;
+var isRunOnce = false;
+var isPause = false;
+var isShowingHelp = false;
+var isStableWorld = false;
+var isOvercrowded = false;
+var autoFlag = "";
+var autoWait = -1;
+var trialCount = 0;
+var overcrowdTrial = 0;
+var overcrowdRules = 0;
+var action = "";
+var actionCode = 0;
+
+var lastSeed = 0;
+var lastDensity = 0;
+var lastCellSt = "010/001/111";
+var lastDescSt = "glider";
+var rotateCount = 0;
+
+var gen = 0;
+var pop = 0;
+var mas = 0;
+var targetGen = -1;
+var growCount = 0;
+var shrinkCount = 0;
+var masGain = 0;
+var lastMas = 0;
+var maxMas = 0;
+var masArr = [];
+
+var world = null;
+var worldOld = null;
+var field = null;
+var fieldOld = null;
+var offsetY = null
+var offsetX = null
+var areas = [];
+var currAnimals = [];
+var detected = [];
+var sortByType = 0;
+var screenMode = 0;
+var watchArea = "";
+
+function Area(status) { // var a = areas[g];
+	this.status = status;
+	this.type = "";
+	this.period = -1;
+	this.verify = -1;
+	this.shiftY = 0;
+	this.shiftX = 0;
+	this.maxH = 0;
+	this.maxW = 0;
+	this.hashArr = [];
+	this.yArr = [];
+	this.xArr = [];
+	this.singArr = [];
+	this.latest = null; // type AreaResult
+	this.candidate = null; // type Animal
+	this.comment = "";
+	this.age = 0;
+}
+function AreaResult() { // var r = new AreaResult();
+	this.pop = 0;
+	this.mas = 0;
+	this.hash = 0;
+	this.maxY = -1e99;
+	this.minY = 1e99;
+	this.maxX = -1e99;
+	this.minX = 1e99;
+	this.h = 0;
+	this.w = 0;
+}
+function Animal() { // var l = new Animal();
+	this.cells = [];
+	this.st = "";
+	this.type = "";
+	this.period = -1;
+	this.shiftY = 0;
+	this.shiftX = 0;
+	this.dir = "";
+	this.pop = 0;
+	this.mas = 0;
+	this.hashA = 0;
+	this.h = 0;
+	this.w = 0;
+}
+
+world = InitArray();
+worldOld = InitArray();
+field = InitArray();
+fieldOld = InitArray();
+offsetY = InitArray();
+offsetX = InitArray();
+
+SetScreenMode(0);
+ShowAnimals();
+SetStates(1);
+RandomWorld(DEF_DENSITY);
+ShowWorld();
+ShowStatus();
+var p = setInterval(Tick, 5);
+document.onkeypress = HandleKey;
+
+/*
+1/3	2n+1
+2/5	2n+1	1
+3/7	2n+1	1
+4/8	2n		2
+5/10	2n		2
+6/11	2n-1	3
+7/13	2n-1	3
+8/14	2n-2	4
+9/16	2n-2	4
+*/
+function Bound(n, min, max) {
+	if (n < min) return min;
+	else if (n > max) return max;
+	else return n;
+}
+function SetStates(s) {
+	s = Bound(s, 0, 61);
+	states = s;
+	pK = (s==1 ? 3 : s * 2 + 2 - Math.floor(s/2));
+	pL = Math.floor((s-1) / 2);
+	pM = 1;
+	pN = Math.floor(s / 2);
+	maxN = s * 8;
+	ResetAnimals();
+	ShowInfo();
+	ShowMatrix();
+}
+function SetRule(k, l, m, n) {
+	pK = Bound(k, 1, maxN);
+	pL = Bound(l, 0, maxN - pK);
+	pM = Bound(m, 0, pK - 1);
+	pN = Bound(n, 0, maxN - pK - pL);
+	trialCount = overcrowdTrial = 0;
+	ResetAnimals();
+	ShowInfo();
+	ShowMatrix();
+}
+function SetRuleSt(st) {
+	var a = st.split(/\/|\+|\,/);
+	states = parseInt(a[0]);
+	maxN = states * 8;
+	SetRule(parseInt(a[1]), parseInt(a[2]), parseInt(a[3]), parseInt(a[4]));
+}
+function GetChar(c) {
+	// 0=" ", 1-9="1-9", 10-35="a-z"=&#97-122, 36-61="A-Z"=&#65-90, 62~="*"
+	return (c<=0 ? "\u00a0" : c<10 ? c : c<62 ? String.fromCharCode(c+(c<36?87:29)) : "*");
+}
+function GetCode(ch) {
+	if (ch <= '9') return parseInt(ch);
+	else if (ch <= 'Z') return ch.charCodeAt(0) - 65 + 36;
+	else if (ch <= 'z') return ch.charCodeAt(0) - 97 + 10;
+}
+function InitArray() {
+	var a = [];
+	for (var i=0; i<=H0+1; i++) {
+		var row = [];
+		for (var j=0; j<=W0+1; j++) {
+			row.push(0);
+		}
+		a.push(row);
+	}
+	return a;
+}
+function NewSeed() {
+	lastSeed = (new Date).getTime();
+	init_genrand(lastSeed);
+}
+function UseSeed(seed) {
+	lastSeed = seed;
+	init_genrand(lastSeed);
+}
+function Random() {
+	return genrand_real2();
+}
+function RandomRange(min, max) {
+    return Math.floor(Random() * (max + 1 - min) + min);
+}
+function RandomWorld(density) {
+	NewSeed();
+	GenerateWorld(density);
+}
+function RandomWorldWithSeed(seed, density) {
+	UseSeed(seed);
+	GenerateWorld(density);
+}
+function GenerateWorld(density) {
+	if (density>0) lastDensity = density;
+	for (var i=0; i<=H0+1; i++) {
+		for (var j=0; j<=W0+1; j++) {
+			worldOld[i][j] = 0;
+			var c = Random() < density ? RandomRange(1, states) : 0;
+			world[i][j] = c;
+			if (c > 0) pop++;
+			mas += c;
+			//row.push(i % (states+1));
+		}
+	}
+	gen = pop = mas = 0;
+	growCount = shrinkCount = masGain = lastMas = maxMas = 0;
+	masArr = [];
+	InitField();
+	ShowWorld();
+	ShowField();
+	ShowAreas();
+	ShowStatus();
+}
+function RandomAnimalNo(n) {
+	if (n > currAnimals.length)
+		return;
+	var cellSt = currAnimals[n-1][1];
+	RandomAnimal(cellSt);
+}
+function RandomAnimal(cellSt) {
+	var cells = cellSt.split("/");
+	var h = cells.length;
+	var w = 0;
+	for (var i=0; i<h; i++) {
+		if (cells[i].length > w) w = cells[i].length;
+	}
+	var flipY = (Random() > 0.5);
+	var flipX = (Random() > 0.5);
+	var flipD = (Random() > 0.5);
+	var y = RandomRange(1, H0 - (!flipD ? h : w));
+	var x = RandomRange(1, W0 - (!flipD ? w : h));
+	for (var i=0; i<h; i++) {
+		for (var j=0; j<w; j++) {
+			var c = 0;
+			if (j < cells[i].length) {
+				c = GetCode(cells[i].charAt(j));
+			}
+			if (!flipD)
+				world[y+(flipY?h-i:i)][x+(flipX?w-j:j)] = c;
+			else
+				world[y+(flipX?w-j:j)][x+(flipY?h-i:i)] = c;
+		}
+	}
+	if (gen == 0) autoFlag = "";
+	InitField();
+	ShowWorld();
+	ShowField();
+	ShowAreas();
+	ShowStatus();
+}
+function CenterAnimal(cellSt) {
+	RandomWorld(0);
+	lastDensity = DEF_DENSITY;
+	lastCellSt = cellSt;
+	var cells = cellSt.split("/");
+	var h = cells.length;
+	var w = 0;
+	for (var i=0; i<h; i++) {
+		if (cells[i].length > w) w = cells[i].length;
+	}
+	var flipY = false;
+	var flipX = false;
+	var flipD = false;
+	switch (rotateCount % 4) {
+		case 1: flipY = flipD = true; break;
+		case 2: flipX = flipY = true; break;
+		case 3: flipX = flipD = true; break;
+	}
+	var y = Math.floor((H0 - (!flipD ? h : w))/2);
+	var x = Math.floor((W0 -  (!flipD ? w : h))/2);
+	for (var i=0; i<h; i++) {
+		for (var j=0; j<w; j++) {
+			var c = 0;
+			if (j < cells[i].length) {
+				c = GetCode(cells[i].charAt(j));
+			}
+			if (!flipD)
+				world[y+(flipY?h-i:i)][x+(flipX?w-j:j)] = c;
+			else
+				world[y+(flipX?w-j:j)][x+(flipY?h-i:i)] = c;
+		}
+	}
+	if (gen == 0) autoFlag = "";
+	InitField();
+	ShowWorld();
+	ShowField();
+	ShowAreas();
+	ShowStatus();
+}
+function GetRuleSt(s, k, l, m, n) {
+	return s+"/"+k+"+"+l+","+m+","+n;
+}
+function FilterAnimals(s, k, l, m, n) {
+	var ruleSt = GetRuleSt(s,k,l,m,n);
+	if (animals)
+		return animals.filter(function(a) { return a.length==3 && a[0]==ruleSt; });
+	else
+		return [];
+}
+function CountNotableAnimals(s, k, l, m, n) {
+	var ruleSt = GetRuleSt(s,k,l,m,n);
+	if (animals)
+		return animals.reduce(function(count,a) { return (a.length==3 && a[0]==ruleSt && ANIM_TYPES[a[2].substring(0,2)] && a[2].charAt(2)==':') ? count+1 : count}, 0);
+	else
+		return [];
+}
+function IsExistCurrAnimal(cellSt) {
+	return currAnimals.reduce(function(count,a) { return (a[1]==cellSt) ? count+1 : count}, 0) >= 1;
+}
+function ResetAnimals() {
+	currRuleSt = GetRuleSt(states, pK, pL, pM, pN);
+	currAnimals = FilterAnimals(states, pK, pL, pM, pN);
+/**/
+	//detected = [];
+	//ShowDetected();
+}
+function TurnPanel(n,isOn) {
+	var div = document.getElementById(n);
+	if (!div) return;
+	div.style.display = (isOn ? "" : "none");
+}
+function ShowInfo() {
+	var div = document.getElementById("Info");
+	if (!div || div.style.display=="none") return;
+	currRuleSt = GetRuleSt(states, pK, pL, pM, pN);
+	var animalText = "";
+	for (var n=0; n<Math.min(currAnimals.length,7); n++) {
+		animalText += (n + 1) + " ";
+	}
+	var st = [];
+	st.push("PRIMORDIA [h=help]  rule["+currRuleSt+"] animals["+(currAnimals.length>0?"shift-":"")+animalText.trim()+"]");
+	var s = "";
+	for (var n=1;n<=maxN;n++) {
+		if (n<pK-pM || n>pK+pL+pN) s+="-"; else if (n>=pK && n<=pK+pL) s+="+"; else s+="=";
+		//if (states>1 && n % states == 0) s+=" ";
+	}
+	st.push("["+s+"]");
+	div.innerHTML = st.join("<br>");
+}
+function ShowArray(f, divId) {
+	var div = document.getElementById(divId);
+	if (!div || div.style.display=="none") return;
+	var st = [];
+	for (var i=1; i<=H0; i++) {
+		var row = "";
+		for (var j=1; j<=W0; j++) {
+			row += GetChar(Math.abs(f[i][j]));
+		}
+		st.push(row);
+	}
+	div.innerHTML = st.join("\n");
+}
+function ShowWorld() {
+	var div = document.getElementById("World");
+	if (!div || div.style.display=="none") return;
+	//ShowArray(world, "World");
+	var st = [];
+	for (var i=1; i<=H0; i++) {
+		var row = "";
+		var lastG = -1;
+		for (var j=1; j<=W0; j++) {
+			var g = field[i][j];
+			var gc = GetChar(g);
+			var c = GetChar(world[i][j]);
+			var isClose = (lastG != g && lastG > 0);
+			var isOpen = (lastG != g && g > 0);
+			var isLast = (j == W0);
+			var isShow = false;
+			var details = "";
+			if (isOpen) {
+				var a = areas[g];
+				var r = a.latest;
+				if (a.type != "CRD" && a.type != "OVR") {
+					isShow = true;
+					details = "["+gc+"] "+a.type+"/"+a.period+(a.type=="MOV"?"("+a.shiftY+","+a.shiftX+")":"")+" "+r.h+"x"+r.w
+							+ "\n"+AREA_TYPES[a.type]
+							+ (a.type=="MOV"&&a.candidate?"\nDirection: "+ANIM_DESCS[a.candidate.dir]:"")
+							+ "\nPeriod: "+a.period
+							+ (a.type=="MOV"?"\nShift Y: "+a.shiftY+", X: "+a.shiftX:"")
+							+ "\nSize: "+r.h+"x"+r.w;
+				}
+			}
+			row += (isClose?"</span>":"")+(isOpen&&isShow?"<span style='color:"+AREA_COLORS[a.type]+"' title='"+details+"'>":"")+c+(isLast?"</span>":"");
+			lastG = g;
+		}
+		st.push(row);
+	}
+	div.innerHTML = st.join("<br>");
+}
+function ShowField() {
+	ShowArray(field, "Field");
+	ShowArray(fieldOld, "Field2");
+	ShowArray(offsetY, "OffsetY");
+	ShowArray(offsetX, "OffsetX");
+}
+function ShowAreas() {
+	var div = document.getElementById("Area");
+	if (!div || div.style.display=="none") return;
+	var st = [];
+	for (var typeSt in AREA_TYPES) {
+		for (var g=1; g<areas.length; g++) {
+			var a = areas[g];
+			if (a.status != "empty" && a.type == typeSt) {
+				var r = a.latest;
+				var details = "["+GetChar(g)+"] "+a.type+"/"+a.period+(a.type=="MOV"?"("+a.shiftY+","+a.shiftX+")":"")+" "+r.h+"x"+r.w;
+				st.push("<span style='color:"+AREA_COLORS[a.type]+"' title='"+details+"'>"+GetChar(g)+" "+(a.type?a.type+(a.period!=-1?"/"+a.period:"")+(a.verify!=-1?" ("+a.verify+")":""):"")+(a.comment?" *"+a.comment:"")+"</span>");
+			}
+		}
+	}
+	div.innerHTML = st.join("<br>");
+}
+function ShowStatus() {
+	ShowStatus1();
+	ShowStatus2();
+	ShowHistory();
+}
+function ShowStatus1() {
+	var div = document.getElementById("Status");
+	if (!div || div.style.display=="none") return;
+	var st = [];
+	var popMax = H0 * W0;
+	var masMax = states * popMax;
+	var popR = Math.floor(pop / popMax * 20);
+	var masR = Math.floor(mas / masMax * 20);
+	var popP = Math.floor(pop / popMax * 100);
+	var masP = Math.floor(mas / masMax * 100);
+	var masGainP = Math.floor(masGain / masMax * 100);
+	var totalCount = growCount+shrinkCount;
+	var growP = (totalCount==0 ? 0 : Math.floor(growCount / totalCount * 100));
+	var shrinkP = (totalCount==0 ? 0 : Math.floor(shrinkCount / totalCount * 100));
+	st.push("gen |"+gen + (targetGen!=-1?" -> "+targetGen:""));
+	st.push("pop |" + Array(popR+1).join("=") + Array(20-popR+1).join(" ") + "|"+popP+"%");
+	st.push("mass|" + Array(masR+1).join("o") + Array(20-masR+1).join(" ") + "|"+masP+"% "
+			+ (masGain>=0?"+":"")+masGainP+"%");
+	st.push("seed|" + currRuleSt + ";" + lastSeed + ";" + lastDensity);
+	//st.push("hist|"+(shrinkP>growP?"<u>":"")+"(-)" + shrinkP + "%"+(shrinkP>growP?"</u>":"")+" "+(shrinkP<growP?"<u>":"")+"(+)" + growP + "%"+(shrinkP<growP?"</u>":""));
+	if (isOverflow) st.push("<b>THREAD OVERFLOW!</b>");
+	st.push("hist|step "+masArrStep);
+	div.innerHTML = st.join("<br>");
+}
+function ShowStatus2() {
+	var div = document.getElementById("Status2");
+	if (!div || div.style.display=="none") return;
+	var st = [];
+	var areaListSt = "";
+	for (var typeSt in AREA_TYPES) {
+		var count = areas.reduce(function(count,a) { return (a.status != "empty" && a.type == typeSt) ? count+1 : count}, 0);
+		if (count > 0) {
+			areaListSt = "<span style='color:"+AREA_COLORS[typeSt]+"' title='"+AREA_TYPES[typeSt]+"'>"+typeSt+":"+(count<10?" ":"")+count+"</span> " + areaListSt;
+		} else {
+			areaListSt = "       " + areaListSt;
+		}
+	}
+	var statusSt = "";
+	if (isOvercrowded) {
+		statusSt += "<span style='color:"+AREA_COLORS["OVR"]+"'>OVERCROWDED</span>";
+	} else if (isStableWorld) {
+		statusSt += "<span style='color:"+AREA_COLORS["STA"]+"'>STABLE     </span>";
+	} else {
+		statusSt += "<span style='color:"+AREA_COLORS["MOV"]+"'>EVOLVING   </span>";
+	}
+	if (autoFlag=="CAPTURE") {
+		statusSt += " [AUTO CAPTURE] " + TRIAL_DENSITY[Math.floor(trialCount / TRIAL_COUNT)] + ":" + (trialCount % TRIAL_COUNT);
+	} else if (autoFlag=="RANDOM") {
+		statusSt += " [AUTO RANDOM]"; //(autoWait>-1?":"+autoWait:"")
+	}
+	var counter = masGain; //mas-lastMas 
+	st.push("world  |"+statusSt);
+	st.push("objects|"+areaListSt);
+//	st.push("<span style='font:40px monospace; color:"+(counter>0 ? "#99f" : counter<0 ? "#f99" : "")+"'>" + (counter>0 ? "++" : counter<0 ? "--" : "") + "</span>");
+	div.innerHTML = st.join("<br>");
+}
+function ShowHistory() {
+	var div = document.getElementById("History");
+	if (!div || div.style.display=="none") return;
+	var st = [];
+	//var maxHist = Math.max.apply(null, masArr);
+	for (var n=0; n<HISTORY_LEVEL; n++) {
+		var histSt = "";
+		var level1 = ((HISTORY_LEVEL*2-1) - 2 * n) * maxMas / (HISTORY_LEVEL*2);
+		var level2 = ((HISTORY_LEVEL*2-2) - 2 * n) * maxMas / (HISTORY_LEVEL*2);
+		for (var i=0; i<MAS_HISTORY; i++) {
+			histSt += (masArr[i]>level1?"O":masArr[i]>level2?"o":" ");
+		}
+		st.push(histSt);
+	}
+	div.innerHTML = st.join("<br>");
+}
+function ShowWatch() {
+	var div = document.getElementById("Watch");
+	if (!div || div.style.display=="none") return;
+	var st = [];
+	if (watchArea) {
+		st.push("watch|"+watchArea);
+		for (var i=0; i<watchArea.length; i++) {
+			var a = areas[GetCode(watchArea.charAt(i))];
+			if (a && a.status=="used") { 
+				var s1 = "", s2 = "";
+				for (var j=0; j<a.hashArr.length; j++) {
+					s1 += Math.floor(a.hashArr[j] / 10) % 10;
+					s2 += a.hashArr[j] % 10;
+				}
+				st.push(i+" "+a.singArr.join(""));
+				st.push(i+" "+s1);
+				st.push(i+" "+s2);
+			}
+		}
+	}
+	div.innerHTML = st.join("<br>");
+}
+function log(st) {
+	var div = document.getElementById("Log");
+	if (!div || div.style.display=="none") return;
+	div.innerHTML += st + "<br>";
+}
+function GetMaxFromArray(arr, i) {
+    return Math.max.apply(Math, arr.map(function(e) { return e[i]; }));
+}
+function FilterArray(arr, i, n) {
+    return arr.filter(function(r) { return r[i]==n; });
+}
+function GetMatrixSpan(s, k, l, m, n, sym, hasAnimal) {
+	var ruleSt = GetRuleSt(s,k,l,m,n);
+	var ruleDesc = (ruleSt=="1/3+0,1,0"?"Conway's game of life, ":"") + RULE_DESCS[sym]+" world" + (hasAnimal?", with known animals":"");
+	var classSt = (currRuleSt==ruleSt?"MatrixCurrent ":"") + (hasAnimal?"MatrixHasAnimal ":"");
+	return "<span onclick='SetRule("+k+","+l+","+m+","+n+"); RandomWorld(DEF_DENSITY);' title=\"["+ruleSt+"] "+ruleDesc+"\" class=\""+classSt+"\">"+sym+"</span>";
+}
+function ShowMatrix() {
+	if (!ruleLimits) return;
+	var div = document.getElementById("Matrix");
+	if (!div || div.style.display=="none") return;
+	var st = "";
+	st += "<table><th>S</th><th>K</th><th>L</th><th>M x N</th>";
+	var s = states;
+	var rulesS = FilterArray(ruleLimits, 0, s);
+	if (rulesS.length==0) {
+		st += "<tr valign=top><td>"+s+"</td><td></td><td></td><td></td></tr>";
+	} else {
+		var maxK = GetMaxFromArray(rulesS, 1);
+		for (var k=1; k<=maxK; k++) {
+			st += "<tr valign=top><td>"+(k==1?s:"")+"</td><td>"+k+"</td>";
+			var rulesK = FilterArray(rulesS, 1, k);
+			if (rulesK.length==0) {
+				st += "<td></td><td><div class='MatrixLink'>"+GetMatrixSpan(s, k, 0, 0, 0, "+", false)+"</div></td>";
+			} else {
+				var maxL = GetMaxFromArray(rulesK, 2);
+				if (maxL==-1) {
+					var sym = rulesK[0][5];
+					st += "<td></td><td><div class='MatrixLink'>"+GetMatrixSpan(s, k, 0, 0, 0, sym, false)+"</div></td>";
+				} else {
+					for (var l=0; l<=maxL+1; l++) {
+						st += "<td>"+l+"</td><td><div class='MatrixLink'>";
+						var rulesL = FilterArray(rulesK, 2, l);
+						if (rulesL.length==0) {
+							st += GetMatrixSpan(s, k, l, 0, 0, "+", false);
+						} else {
+							var maxM = GetMaxFromArray(rulesL, 3);
+							var maxN = GetMaxFromArray(rulesL, 4);
+							if (maxM==-1) {
+								var sym = rulesL[0][5];
+								st += GetMatrixSpan(s, k, l, 0, 0, sym, false);
+							} else {
+								for (var m=0; m<=maxM+1; m++) {
+									var rulesM = FilterArray(rulesL, 3, m);
+									if (rulesM.length==0) {
+										for (var n=0; n<=maxN+2; n++) {
+											st += GetMatrixSpan(s, k, l, m, n, "+", false);
+										}
+									} else {
+										var n2 = rulesM[0][4];
+										var sym = rulesM[0][5];
+										var hasAnimals;
+										if (n2 == -1) {
+											for (var n=0; n<=maxN+2; n++) {
+												hasAnimals = (CountNotableAnimals(s, k, l, m, n)>0);
+												st += GetMatrixSpan(s, k, l, m, n, "-", hasAnimals);
+											}
+										} else {
+											for (var n=0; n<=n2-1; n++) {
+												hasAnimals = (CountNotableAnimals(s, k, l, m, n)>0);
+												st += GetMatrixSpan(s, k, l, m, n, "-", hasAnimals);
+											}
+											hasAnimals = (CountNotableAnimals(s, k, l, m, n2)>0);
+											st += GetMatrixSpan(s, k, l, m, n2, sym, hasAnimals);
+											for (var n=n2+1; n<=maxN+2; n++) {
+												hasAnimals = (CountNotableAnimals(s, k, l, m, n)>0);
+												st += GetMatrixSpan(s, k, l, m, n, "+", hasAnimals);
+											}
+										}
+									}
+									st += "<br>";
+								}
+							}
+							st += "</div></td>";
+						}
+					}
+				}
+			}
+			st += "</tr>";
+		}
+	}
+	/*
+	for (var i=0; i<ruleLimits.length; i++) {
+		
+		var ruleSt = ruleLimits[i][0];
+		var a = ruleSt.split(/\/|\+|\,/);
+		var S0 = parseInt(a[0]);
+		var K0 = parseInt(a[1]);
+		var L0 = parseInt(a[2]);
+		var M0 = parseInt(a[3]);
+		var N0 = parseInt(a[4]);
+		var isChaotic = ruleLimits[i][1];
+	}
+	*/
+
+	st += "</table>";
+	div.innerHTML = st;
+}
+function GetLongDesc(typeSt) {
+	if (typeSt.charAt(2) != ":")
+		return "";
+	var t1 = ANIM_DESCS[typeSt.charAt(0)];
+	var t2 = ANIM_DESCS[typeSt.charAt(1)];
+	if (t1 && t2)
+		return (t1+" "+t2);
+	else
+		return "";
+}
+function ShowAnimals() {
+	if (!animals) return;
+	var sel = document.getElementById("Animal");
+	if (!sel) return;
+    for (var i=sel.options.length-1; i>=0; i--) {
+        sel.remove(i);
+    }
+	if (sortByType == 1) {
+		for (var typeSt in ANIM_TYPES) {
+			var animals2 = animals.filter(function(a) { return a.length == 3 && a[2].lastIndexOf(typeSt,0)==0; });
+			if (animals2.length > 0) {
+				var seperator = document.createElement("option");
+				seperator.text = "===== Type " + typeSt + " (" + GetLongDesc(typeSt+":") + ")";
+				sel.add(seperator);
+			}
+			for (var n=0; n<animals2.length; n++) {
+				var a = animals2[n];
+				var ruleSt = a[0];
+				var cellSt = a[1];
+				var descSt = a[2];
+				var longSt = GetLongDesc(descSt);
+				var option = document.createElement("option");
+				option.text = "["+ruleSt+"] "+descSt;
+				option.value = ruleSt+";"+cellSt+";"+descSt;
+				option.title = "["+ruleSt+"] "+descSt+(longSt?"\n"+longSt:"")+"\n"+cellSt.replace(/\//g, "\n");
+				sel.add(option);
+			}
+		}
+	} else {
+		var lastS = "";
+		for (var n=0; n<animals.length; n++) {
+			var a = animals[n];
+			if (a.length == 3) {
+				var ruleSt = a[0];
+				var cellSt = a[1];
+				var descSt = a[2];
+				var longSt = GetLongDesc(descSt);
+				var currS = ruleSt.substring(0, ruleSt.indexOf("/"));
+				if (currS != lastS) {
+					var seperator = document.createElement("option");
+					seperator.text = "===== " + currS + " states =====";
+					sel.add(seperator);
+				}
+				var option = document.createElement("option");
+				option.text = "["+ruleSt+"] "+descSt;
+				option.value = ruleSt+";"+cellSt+";"+descSt;
+				option.title = "["+ruleSt+"] "+descSt+(longSt?"\n"+longSt:"")+"\n"+cellSt.replace(/\//g, "\n");
+				sel.add(option);
+				lastS = currS;
+			} else if (animals[n].length == 1) {
+				var option = document.createElement("option");
+				option.text = animals[n][0];
+				sel.add(option);
+			}
+		}
+	}
+}
+function ShowDetected() {
+	var sel = document.getElementById("Detected");
+	if (!sel) return;
+    for (var i=sel.options.length-1; i>=0; i--) {
+        sel.remove(i);
+    }
+	if (sortByType == 1) {
+		for (var typeSt in AREA_TYPES) {
+			var detected2 = detected.filter(function(d) { return d[1].type == typeSt; });
+			for (var n=0; n<detected2.length; n++) {
+				var d = detected2[n];
+				var l = d[1];
+				var ruleSt = d[0];
+				var option = document.createElement("option");
+				var descSt = GetAnimalDesc(l);
+				var longSt = GetLongDesc(descSt);
+				option.text = "["+ruleSt+"] "+descSt+" "+l.h+"x"+l.w;
+				option.value = ruleSt+";"+l.cellSt+";"+descSt;
+				option.title = "["+ruleSt+"] "+descSt+(longSt?"\n"+longSt:"")+"\n"+l.cellSt.replace(/\//g, "\n");
+				sel.add(option);
+			}
+		}
+	} else {
+		for (var n=0; n<detected.length; n++) {
+			var d = detected[n];
+			var l = d[1];
+			var ruleSt = d[0];
+			var option = document.createElement("option");
+			var descSt = GetAnimalDesc(l);
+			var longSt = GetLongDesc(descSt);
+			option.text = "["+ruleSt+"] "+descSt+" "+l.h+"x"+l.w;
+			option.value = ruleSt+";"+l.cellSt+";"+descSt;
+			option.title = "["+ruleSt+"] "+descSt+(longSt?"\n"+longSt:"")+"\n"+l.cellSt.replace(/\//g, "\n");
+			sel.add(option);
+		}
+	}
+}
+function ClearDetected() {
+	detected = [];
+	ShowDetected();
+}
+function GetAnimalDesc(l) {
+	var area = l.h * l.w;
+	var typeSt = (l.type=="MOV" ? l.dir : l.type=="STA"||l.type=="OSC" ? "O" : "X");
+	var sizeSt = (area<15 ? "S" : area<40 ? "M" : area<100 ? "L" : "X");
+	var shiftSt = (l.type=="MOV" ? (l.dir=="D"||l.dir=="R" ? l.shiftX : l.shiftY+","+l.shiftX) : "");
+	return typeSt+sizeSt+":"+shiftSt+"/"+l.period;
+}
+function SelectAnimal(obj) {
+	SelectAnimalSt(obj.options[obj.selectedIndex].value);
+}
+function SelectAnimalSt(st0) {
+	var st = st0.split(";");
+	if (st.length >= 2) {
+		var ruleSt = st[0];
+		var cellSt = st[1];
+		var descSt = (st.length >= 3 ? st[2] : "");
+		if (ruleSt && ruleSt != currRuleSt) {
+			SetRuleSt(ruleSt);
+			RandomWorld(0);
+			lastDensity = DEF_DENSITY;
+		}
+		if (cellSt == lastCellSt && gen == 0)
+			rotateCount++;
+		else
+			rotateCount = 0;
+		CenterAnimal(cellSt);
+		lastDescSt = descSt;
+		isPause = false;
+	}
+}
+function CopyArray(f1, f2) {
+	for (var i=0; i<=H0+1; i++) {
+		f1[i] = f2[i].slice();
+	}
+}
+function WrapBorder(f) {
+	f[0] = f[H0];
+	f[H0+1] = f[1];
+	for (var i=1; i<=H0; i++) {
+		f[i][0] = f[i][W0];
+		f[i][W0+1] = f[i][1];
+	}
+}
+function HandleKey(e) {
+	actionCode = window.event ? e.keyCode : e.which;
+	action = String.fromCharCode(actionCode);
+}
+function TrimCells(cells, j1, j2) {
+	var h = cells.length;
+	var w = cells[0].length;
+	var isChop = true;
+	var col = 0;
+	for (var i=0; i<h; i++)
+		col += cells[i].charAt(j1);
+	if (col == 0) {
+		for (var i=0; i<h; i++)
+			cells[i] = cells[i].substring(j2, w-1 + j2);
+		isChop = true;
+	} else {
+		isChop = false;
+	}
+	return isChop;
+}
+function HandleSelect() {
+	if (isRunning && !isPause) {
+		document.getSelection().removeAllRanges();
+		return;
+	}
+	var text = document.getSelection().toString().replace(/ |\u00a0/g, "0").split("\n");
+	document.getSelection().removeAllRanges();
+	var h = text.length;
+	var w = 0, s = 0;
+	if (h == 1) {
+		w = text[0].length;
+	} else {
+		s = W0 - text[0].length;
+		w = text[h-1].length - s;
+	}
+	if (w <= 0) return;
+
+	var cells = [];
+	if (h == 1) {
+		cells = text;
+	} else {
+		cells.push(text[0].substr(0, w));
+		for (var i=1; i<h; i++) {
+			cells.push(text[i].substr(s, w));
+		}
+	}
+
+	while (cells.length>0 && cells[0].replace(/0/g,"")=="")
+		cells.shift();
+	while (cells.length>0 && cells[cells.length-1].replace(/0/g,"")=="")
+		cells.pop();
+	h = cells.length;
+	if (h <= 0) return;
+
+	while (TrimCells(cells, 0, 1));
+	while (TrimCells(cells, cells[0].length-1, 0));
+	w = cells[0].length;
+
+	var copyText = "[\""+currRuleSt+"\", \""+cells.join("/")+"\", \"\"],";
+//	var copyText = cells.join("/");
+	window.prompt("Animal captured "+h+"x"+w, copyText);
+}
+function NextGen() {
+	lastMas = mas;
+	pop = mas = 0;
+	gen++;
+	WrapBorder(world);
+	CopyArray(worldOld, world);
+	for (var i=1; i<=H0; i++) {
+		for (var j=1; j<=W0; j++) {
+			var c = worldOld[i][j];
+			var c0 = c;
+			var n = worldOld[i-1][j-1] + worldOld[i-1][j] + worldOld[i-1][j+1] 
+				+ worldOld[i][j-1] + worldOld[i][j+1] 
+				+ worldOld[i+1][j-1] + worldOld[i+1][j] + worldOld[i+1][j+1];
+			if (n<pK-pM || n>pK+pL+pN) c--; else if (n>=pK && n<=pK+pL) c++;
+			c = Bound(c, 0, states);
+			world[i][j] = c;
+			if (c > 0) pop++;
+			mas += c;
+		}
+	}
+	if (gen > states + 1) {
+		if (mas < lastMas)
+			shrinkCount++;
+		else if (mas > lastMas)
+			growCount++;
+		masGain += (mas - lastMas);
+		if (mas > maxMas)
+			maxMas = mas;
+		if (gen % masArrStep == 0)
+			masArr.push(mas);
+		while (masArr.length > MAS_HISTORY)
+			masArr.shift();
+	}
+	if (targetGen != -1) {
+		if (gen >= targetGen) {
+			isRunning = false;
+			targetGen = -1;
+		}
+	}
+}
+function DivergeArea(a2, a1) {
+	//if (a2.period == -1 || a1.period == -1) a2.period = -1;
+	a2.type = a1.type;
+	a2.period = a1.period;
+	a2.verify = a1.verify;
+	a2.shiftY = a1.shiftY;
+	a2.shiftX = a1.shiftX;
+	a2.maxH = a1.maxH;
+	a2.maxW = a1.maxW;
+	a2.hashArr = a1.hashArr.slice();
+	a2.yArr = a1.yArr.slice();
+	a2.xArr = a1.xArr.slice();
+	a2.singArr = a1.singArr.slice();
+	a2.hashArr.pop();
+	a2.yArr.pop();
+	a2.xArr.pop();
+	a2.singArr.pop();
+	a2.latest = a1.latest;
+	a2.candidate = a1.candidate;
+	a2.comment = a1.comment = "";
+	a2.age = a1.age;
+}
+function CombineArea(a2, a1) {
+	for (var i=0; i<a2.hashArr.length-1; i++) {
+		if (a2.hashArr[i] != a1.hashArr[i]) {
+			a2.singArr[i] = 0;
+		}
+	}
+}
+function FindNewAreas(g) {
+	var newgs = [];
+	for (var i=1; i<=H0; i++) {
+		for (var j=1; j<=W0; j++) {
+			var g0 = fieldOld[i][j];
+			var g1 = field[i][j];
+			if (g0 == g && g1 != g && g1 != 0 && newgs.indexOf(g1) == -1) {
+				newgs.push(g1);
+			}
+		}
+	}
+	return newgs;
+}
+function AreaAddResult(a1, r) {
+	a1.latest = r;
+	a1.hashArr.push(r.hash);
+	a1.yArr.push(r.minY);
+	a1.xArr.push(r.minX);
+	a1.singArr.push(1);
+}
+function TrimHistory(a1) {
+	while (a1.hashArr.length > AREA_HISTORY) {
+		a1.hashArr.shift();
+		a1.yArr.shift();
+		a1.xArr.shift();
+		a1.singArr.shift();
+	}
+}
+function ResetField() {
+	for (var i=1; i<=H0; i++) {
+		for (var j=1; j<=W0; j++) {
+			var n = world[i-1][j-1] + world[i-1][j] + world[i-1][j+1] 
+				+ world[i][j-1] + world[i][j] + world[i][j+1] 
+				+ world[i+1][j-1] + world[i+1][j] + world[i+1][j+1];
+			field[i][j] = (n==0 ? 0 : -1);
+			offsetY[i][j] = 0;
+			offsetX[i][j] = 0;
+		}
+	}
+}
+function InitField() {
+	WrapBorder(world);
+	ResetField();
+	areas = [];
+	areas.push(new Area("null")); // index 0 not used
+	var g = 1;
+	for (var i=1; i<=H0; i++) {
+		for (var j=1; j<=W0; j++) {
+			fieldOld[i][j] = 0;
+			if (field[i][j] == -1) {
+				var r = FloodArea(i, j, g);
+				r.hash = CalcHash(g, r);
+				var a = new Area("used");
+				areas[g] = a;
+				//a.age = states;
+				AreaAddResult(a, r);
+				g++;
+			}
+		}
+	}
+}
+function CalcField() {
+	WrapBorder(world);
+	CopyArray(fieldOld, field);
+	ResetField();
+	for (var g=1; g<areas.length; g++) {
+		if (areas[g].status != "empty")
+			areas[g].status = "ready";
+	}
+	for (var i=1; i<=H0; i++) {
+		for (var j=1; j<=W0; j++) {
+			if (field[i][j] == -1) {
+				var g = fieldOld[i][j];
+				if (g > 0 && field[i][j] == -1) {
+					var a = areas[g];
+					if (a.status == "used") {
+						var g2 = NextUnusedField();
+						var a2 = areas[g2];
+						DivergeArea(a2, a);
+						a2.age = 0;
+						g = g2;
+						a = a2;
+					}
+					var r = FloodArea(i, j, g);
+					r.hash = CalcHash(g, r);
+					a.status = "used";
+					a.age++;
+					AreaAddResult(a, r);
+				}
+			}
+		}
+	}
+	for (var g=1; g<areas.length; g++) {
+		var a = areas[g];
+		TrimHistory(a);
+	}
+	for (var g=1; g<areas.length; g++) {
+		var a = areas[g];
+		if (a.status == "used") {
+			DetectCycle(a);
+			if (a.verify != -1) {
+//log("ver "+g+" "+a.type+"/"+a.period+" "+a.shiftY+","+a.shiftX+" "+a.latest.pop+" "+a.latest.minY+"~"+a.latest.maxY+" "+a.latest.minX+"~"+a.latest.maxX+" "+a.latest.h+"x"+a.latest.w);
+				VerifyCycle(g, a);
+			}
+		} else {
+			var newgs = FindNewAreas(g);
+			for (var n=0; n<newgs.length; n++) {
+				var g2 = newgs[n];
+				CombineArea(areas[g2], a);
+			}
+			areas[g] = new Area("empty");
+		}
+	}
+	DetectStableWorld();
+}
+function NextUnusedField() {
+	for (var g=1; g<areas.length; g++) {
+		if (areas[g].status == "empty") {
+			areas[g].status = "ready";
+			return g;
+		}
+	}
+	var n = areas.length;
+	areas[n] = new Area("ready");
+	return n;
+}
+/*
+function FloodArea(i, j, g) {
+	var r = new AreaResult();
+	RecursiveStep(i, j, i, j, g, r);
+	r.h = r.maxY-r.minY+1 - 2;
+	r.w = r.maxX-r.minX+1 - 2;
+	return r;
+}
+function RecursiveStep(i, j, i0, j0, g, r) {
+	if (i == 0) i = H0; else if (i == H0+1) i = 1;
+	if (j == 0) j = W0; else if (j == W0+1) j = 1;
+	if (field[i][j] != -1)
+		return;
+	field[i][j] = g;
+	offsetY[i][j] = i0;
+	offsetX[i][j] = j0;
+	var c = world[i][j];
+	if (c > 0) r.pop++;
+	r.mas += c;
+	if (i0 < r.minY) r.minY = i0;
+	if (i0 > r.maxY) r.maxY = i0;
+	if (j0 < r.minX) r.minX = j0;
+	if (j0 > r.maxX) r.maxX = j0;
+	RecursiveStep(i, j+1, i0, j0+1, g, r);
+	RecursiveStep(i, j-1, i0, j0-1, g, r);
+	RecursiveStep(i+1, j, i0+1, j0, g, r);
+	RecursiveStep(i-1, j, i0-1, j0, g, r);
+}
+*/
+function FloodArea(i0, j0, g) {
+	var r = new AreaResult();
+	var queue = [[i0, j0, i0, j0]];
+	while (queue.length > 0) {
+		var p = queue.shift();
+		var i = p[0], j = p[1], i2 = p[2], j2 = p[3];
+		if (i == 0) i = H0; else if (i == H0+1) i = 1;
+		if (j == 0) j = W0; else if (j == W0+1) j = 1;
+		if (field[i][j] == -1) {
+			field[i][j] = g;
+			offsetY[i][j] = i2;
+			offsetX[i][j] = j2;
+			var c = world[i][j];
+			if (c > 0) r.pop++;
+			r.mas += c;
+			if (i2 < r.minY) r.minY = i2;
+			if (i2 > r.maxY) r.maxY = i2;
+			if (j2 < r.minX) r.minX = j2;
+			if (j2 > r.maxX) r.maxX = j2;
+			queue.push([i, j+1, i2, j2+1]);
+			queue.push([i, j-1, i2, j2-1]);
+			queue.push([i+1, j, i2+1, j2]);
+			queue.push([i-1, j, i2-1, j2]);
+		}
+	}
+	r.h = r.maxY-r.minY+1 - 2;
+	r.w = r.maxX-r.minX+1 - 2;
+	return r;
+}
+function CalcHash(g, r) {
+	var hash = 0;
+	var sY = r.minY;
+	var sX = r.minX;
+	for (var i=1; i<=H0; i++) {
+		for (var j=1; j<=W0; j++) {
+			if (field[i][j] == g) {
+				var c2 = world[i][j] + 5;
+				var i2 = offsetY[i][j]-sY + 10;
+				var j2 = offsetX[i][j]-sX + 20;
+				hash += c2*c2 * i2*i2 * j2*j2;
+				// max int:   9007199254740992
+				// max hash: 2433600000000 (size 20x20, 60 states)
+				// full hash: 2725632000000000 (size 70x100, 60 states)
+			}
+		}
+	}
+	return hash;
+}
+function CalcHashAdjusted(l, flipY, flipX, flipD) {
+	var hashA = 0;
+	for (var i=0; i<=l.h+1; i++) {
+		for (var j=0; j<=l.w+1; j++) {
+			var i0 = i;
+			var j0 = j;
+			if (flipY) { i0 = l.h+1 - i0; }
+			if (flipX) { j0 = l.w+1 - j0; }
+			if (flipD) { var temp = i0; i0 = j0; j0 = temp; }
+			var c2 = l.cells[i][j] + 5;
+			var i2 = i0 + 10;
+			var j2 = j0 + 20;
+			hashA += c2*c2 * i2*i2 * j2*j2;
+		}
+	}
+	return hashA;
+}
+function DetectCycle(a) {
+//a.comment = a.singArr[a.singArr.length-1-a.period]+" "+a.latest.pop;
+//a.comment = a.singArr.join("")+" "+a.latest.pop;
+//a.comment = a.age;
+	var r = a.latest;
+	if (r.h >= H0-2 || r.w >= W0-2) {
+		if (a.type != "OVR") {
+			a.period = -1;
+			a.verify = OVR_VERIFY;
+			a.type = "OVR";
+		}
+		return false;
+	}
+	var ha = a.hashArr;
+	var ya = a.yArr;
+	var xa = a.xArr;
+	var isGotCycle = false;
+	for (var i=1; i<ha.length-1; i++) {
+		if (ha[ha.length-1-i] == ha[ha.length-1] && ha[ha.length-2-i] == ha[ha.length-2]) {
+			//var sa = a.singArr;
+			if (a.period != i/* && sa[sa.length-1-i] == 1*/) {
+				a.period = i;
+				a.shiftY = ya[ya.length-1] - ya[ya.length-1-i];
+				a.shiftX = xa[xa.length-1] - xa[xa.length-1-i];
+				if (a.shiftY > +H0/2) a.shiftY -= H0;
+				if (a.shiftY < -H0/2) a.shiftY += H0;
+				if (a.shiftX > +W0/2) a.shiftX -= W0;
+				if (a.shiftX < -W0/2) a.shiftX += W0;
+				if (a.shiftY == 0 && a.shiftX == 0) {
+					a.type = (a.period==1 ? "STL" : (a.period<=states+1 ? "OSC" : "STA"));
+				} else {
+					a.type = "MOV";
+				}
+				//if (a.verify == -1) {
+					a.verify = i;
+					a.candidate = null;
+					a.maxH = 0;
+					a.maxW = 0;
+				//}
+			}
+			isGotCycle = true;
+			//isRunning = false;
+			break;
+		}
+	}
+	if (!isGotCycle) {
+		a.type = "CRD";
+		a.animalSt = "";
+		a.verify = a.period = a.shiftY = a.shiftX = a.animalY = a.animalX = -1;
+	}
+	return isGotCycle;
+}
+function VerifyCycle(g, a) {
+	var r = a.latest;
+	var l = a.candidate;
+	a.verify--;
+	if (a.type == "OVR") {
+		if (!(r.h >= H0-2 || r.w >= W0-2)) {
+			a.type = "CRD";
+			a.animalSt = "";
+			a.verify = a.period = a.shiftY = a.shiftX = a.animalY = a.animalX = -1;
+		}
+		return;
+	}
+
+	if (r.h*r.w > a.maxH*a.maxW) {
+		a.maxH = r.h;
+		a.maxW = r.w;
+	}
+	var sa = a.singArr;
+	if (sa[sa.length-1-a.period] == 1) {
+		if (!l ||
+			(r.pop < l.pop) || 
+			(r.pop==l.pop && r.mas < l.mas) )
+		{
+			var l2 = CaptureCandidate(a, g);
+			l = l2;
+			GetCellSt(l);
+			a.candidate = l;
+		} else if (r.pop==l.pop && r.mas==l.mas) {
+			var l2 = CaptureCandidate(a, g);
+			if (l2.hashA > l.hashA) {
+				l = l2;
+				GetCellSt(l);
+				a.candidate = l;
+			}
+		}
+	}
+	if (a.verify == 0) { // end of 2nd cycle
+		a.verify = -1;
+		if (a.type=="MOV" || a.type=="STA") {
+			var l = a.candidate;
+			if (l) {
+				l.h = a.maxH;
+				l.w = a.maxW;
+				AddDetected(l);
+			}
+		}
+	}
+}
+function FlipYCells(l) {
+	l.cells.reverse();
+}
+function FlipXCells(l) {
+	for (var i=0; i<l.cells.length; i++) {
+		l.cells[i].reverse();
+	}
+}
+function FlipDCells(l) {
+	l.cells = GetTranspose(l.cells);
+}
+function GetTranspose(arr) {
+	return arr[0].map(function (_, c) { return arr.map(function (r) { return r[c]; }); });
+}
+function CaptureCells(r, g) {
+	var sY = r.minY;
+	var sX = r.minX;
+	var cells = [];
+	for (var i=0; i<=r.h+1; i++) {
+		var row = [];
+		for (var j=0; j<=r.w+1; j++) {
+			row.push(0);
+		}
+		cells.push(row);
+	}
+	for (var i=1; i<=H0; i++) {
+		for (var j=1; j<=W0; j++) {
+			if (field[i][j] == g) {
+				var c = world[i][j];
+				var i0 = offsetY[i][j]-sY;
+				var j0 = offsetX[i][j]-sX;
+//if (i0>=cells.length||i0<0)
+//log("ovf "+i+","+j+" "+c+",g"+g+" "+i0+"=("+offsetY[i][j]+")-("+sY+")+("+1+"),"+j0+" 0~"+(r.h+1)+" 0~"+(r.w+1));
+				cells[i0][j0] = c;
+			}
+		}
+	}
+	return cells;
+}
+function CaptureCandidate(a, g) {
+	var r = a.latest;
+	var l = new Animal();
+	l.type = a.type;
+	l.period = a.period;
+	l.shiftY = a.shiftY;
+	l.shiftX = a.shiftX;
+	l.h = r.h;
+	l.w = r.w;
+	l.pop = r.pop;
+	l.mas = r.mas;
+	l.cells = CaptureCells(r, g);
+	if (l.shiftY < 0) {
+		l.shiftY *= -1;
+		FlipYCells(l);
+	}
+	if (l.shiftX < 0) {
+		l.shiftX *= -1;
+		FlipXCells(l);
+	}
+	if (l.shiftY > l.shiftX) {
+		var temp = l.shiftX; l.shiftX = l.shiftY; l.shiftY = temp;
+		temp = l.w; l.w = l.h; l.h = temp;
+		FlipDCells(l);
+	}
+	var hashA = CalcHashAdjusted(l, 0, 0, 0);
+	if (l.shiftY == 0 && l.shiftX == 0) {
+		var flipY = 0;
+		var flipX = 0;
+		var flipD = 0;
+		for (var y=0; y<=1; y++)
+		for (var x=0; x<=1; x++)
+		for (var d=0; d<=1; d++) {
+			if (y+x+d != 0) {
+				var hashA2 = CalcHashAdjusted(l, y, x, d);
+				if (hashA2 > hashA) {
+					flipY = y; flipX = x; flipD = d;
+					hashA = hashA2;
+				}
+			}
+		}
+		if (flipY) FlipYCells(l);
+		if (flipX) FlipXCells(l);
+		if (flipD) {
+			var temp = l.w; l.w = l.h; l.h = temp;
+			FlipDCells(l);
+		}
+	} else if (l.shiftY == 0) {
+		var hashA2 = CalcHashAdjusted(l, 1, 0, 0);
+		if (hashA2 > hashA) {
+			FlipYCells(l);
+			hashA = hashA2;
+		}
+	} else if (l.shiftY == l.shiftX) {
+		var hashA2 = CalcHashAdjusted(l, 0, 0, 1);
+		if (hashA2 > hashA) {
+			var temp = l.w; l.w = l.h; l.h = temp;
+			FlipDCells(l);
+			hashA = hashA2;
+		}
+	} 
+	l.hashA = hashA;
+	if (l.shiftY==l.shiftX)
+		l.dir = "D";
+	else if (l.shiftY==0)
+		l.dir = "R";
+	else
+		l.dir = "B";
+	return l;
+}
+function GetCellSt(l) {
+	var st = "";
+	for (var i=1; i<=l.h; i++) {
+		for (var j=1; j<=l.w; j++) {
+			st += GetChar(l.cells[i][j]);
+		}
+		if (i<l.h) st += "/";
+	}
+	l.cellSt = st.replace(/ |\u00a0/g, "0");
+}
+function AddDetected(l) {
+	if (autoFlag=="CAPTURE" && IsExistCurrAnimal(l.cellSt))
+		return;
+/**/
+	var i = detected.length;
+	for (var n=0; n<detected.length; n++) {
+		var d = detected[n];
+		var l0 = detected[n][1];
+		if (currRuleSt == d[0] && l.cellSt == l0.cellSt) {
+			if (l.period >= l0.period) {
+				i = -1;
+			} else if (l.period < l0.period) {
+				i = n;
+			}
+			break;
+		}
+	}
+	if (i != -1) {
+		detected[i] = [currRuleSt, l];
+//log("[\"" + currRuleSt+"\", \""+l.cellSt+"\", \""+GetAnimalDesc(l)+"\"],");
+		ShowDetected();
+	}
+}
+function DetectStableWorld() {
+	if (pop == 0) {
+		isStableWorld = true;
+		isOvercrowded = false;
+	} else {
+		isStableWorld = true;
+		isOvercrowded = false;
+		for (var g=1; g<areas.length; g++) {
+			var a = areas[g];
+			if (a.status != "empty") {
+				if (a.type == "OVR" && a.verify == -1) {
+					isOvercrowded = true;
+				}
+				if ((a.type == "CRD" && a.age > states) || (a.type != "CRD" && a.verify != -1)) {
+					isStableWorld = false;
+				}
+			}
+		}
+	}
+}
+function Tick() {
+	if (isOccupied) {
+		isOverflow = true;
+		return;
+	}
+	isOccupied = true;
+
+	if (actionCode != 0) {
+		DoAction();
+	}
+	if (!isPause && (isRunning || isRunOnce)) {
+		if ((autoFlag != "" && (isStableWorld || isOvercrowded)) || (autoFlag == "CAPTURE" && gen > TRIAL_MAX_GEN)) {
+			if (autoWait == -1) {
+				autoWait = AUTO_WAIT;
+			} else {
+				autoWait--;
+				if (autoWait == 0) {
+					ResetWorld();
+					autoWait = -1;
+				}
+			}
+		}
+		NextGen();
+		CalcField();
+		ShowWorld();
+		ShowField();
+		ShowAreas();
+		ShowStatus();
+		ShowWatch();
+		isRunOnce = false;
+	}
+
+	isOccupied = false;
+}
+function ResetWorld() {
+	if (autoFlag=="RANDOM") {
+		RandomWorld(lastDensity);
+	} else if (autoFlag=="CAPTURE") {
+		trialCount++;
+		if (isOvercrowded) overcrowdTrial++;
+		if (trialCount >= TRIAL_DENSITY.length * TRIAL_COUNT) {
+			if (trialCount == overcrowdTrial) overcrowdRules++;
+			if (overcrowdRules <= TRIAL_OVERCROWD && pN < maxN - pK - pL)
+				SetRule(pK, pL, pM, pN+1);
+			else {
+				overcrowdRules = 0;
+				if (pN > TRIAL_OVERCROWD && pM < pK - 1)
+					SetRule(pK, pL, pM+1, 0);
+				else if (pM > 0 && pL < maxN - pK)
+					SetRule(pK, pL+1, 0, 0);
+				else if (pK < states*4)
+					SetRule(pK+1, 0, 0, 0);
+				else {
+					autoFlag = "";
+					isRunning = false;
+					return;
+				}
+			}
+			trialCount = overcrowdTrial = 0;
+		}
+		var d = TRIAL_DENSITY[Math.floor(trialCount / TRIAL_COUNT)];
+		RandomWorld(d);
+	}
+}
+function ToggleAuto(flag) {
+	if (autoFlag != flag)
+		autoFlag = flag;
+	else
+		autoFlag = "";
+	if (autoFlag == "RANDOM") {
+		autoWait = -1;
+		isRunning = true;
+	} else if (autoFlag == "CAPTURE") {
+		trialCount = overcrowdTrial = overcrowdRules = 0;
+		isRunning = true;
+	}
+	ShowStatus();
+}
+function DoAction() {
+	isPause = false;
+	if (action.toUpperCase() != "H") HideHelp();
+	switch (action.toUpperCase()) {
+		case " ": isRunOnce = true; isRunning = false; break;
+		case "+": if (states < 256) { SetStates(states+1); RandomWorld(DEF_DENSITY); } break;
+		case "-": if (states > 1) { SetStates(states-1); RandomWorld(DEF_DENSITY); } break;
+		case "*": ToggleAuto("RANDOM"); break;
+		case "/": ClearDetected(); break;
+		case "0": RandomWorld(0); isPause = true; break;
+		case "1": RandomWorld(0.02); break;
+		case "2": RandomWorld(0.05); break;
+		case "3": RandomWorld(0.1); break;
+		case "4": RandomWorld(0.2); break;
+		case "5": RandomWorld(0.5); break;
+		case "6": RandomWorld(0.8); break;
+		case "!": RandomAnimalNo(1); break;
+		case "@": RandomAnimalNo(2); break;
+		case "#": RandomAnimalNo(3); break;
+		case "$": RandomAnimalNo(4); break;
+		case "%": RandomAnimalNo(5); break;
+		case "^": RandomAnimalNo(6); break;
+		case "&": RandomAnimalNo(7); break;
+		case "Q": SetRule(pK+1, pL, pM, pN); RandomWorld(DEF_DENSITY); break;
+		case "A": SetRule(pK-1, pL, pM, pN); RandomWorld(DEF_DENSITY); break;
+		case "W": SetRule(pK, pL+1, pM, pN); RandomWorld(DEF_DENSITY); break;
+		case "S": SetRule(pK, pL-1, pM, pN); RandomWorld(DEF_DENSITY); break;
+		case "D": SetRule(pK, pL, pM+1, pN); RandomWorld(DEF_DENSITY); break;
+		case "E": SetRule(pK, pL, pM-1, pN); RandomWorld(DEF_DENSITY); break;
+		case "R":
+		case "V": SetRule(pK, pL, pM, pN+1); RandomWorld(DEF_DENSITY); break;
+		case "F": SetRule(pK, pL, pM, pN-1); RandomWorld(DEF_DENSITY); break;
+		case "Z": SetRule(pK+1, 0, 0, 0); RandomWorld(DEF_DENSITY); break;
+		case "X": SetRule(pK, pL+1, 0, 0); RandomWorld(DEF_DENSITY); break;
+		case "C": SetRule(pK, pL, pM+1, 0); RandomWorld(DEF_DENSITY); break;
+		case "H": if (isShowingHelp) HideHelp(); else ShowHelp(); break;
+		case "]": masArrStep *= 2; ShowStatus(); break;
+		case "[": if (masArrStep>1) masArrStep = Math.floor(masArrStep/2); ShowStatus(); break;
+		case "G":
+			var input = window.prompt("Run to generation", gen);
+			if (input && parseInt(input)) {
+				if (input.lastIndexOf("+",0)==0) {
+					targetGen = gen + parseInt(input);
+				} else {
+					targetGen = parseInt(input);
+				}
+				isRunning = true;
+			}
+			break;
+		case "P":
+//			var input = window.prompt("Enter cells (or rule; cells; desc)", currRuleSt+"; "+lastCellSt+"; "+lastDescSt);
+			var input = window.prompt("Enter cells (or rule; cells; desc)", "[\""+currRuleSt+"\", \""+lastCellSt+"\", \""+lastDescSt+"\"],");
+			if (input) {
+				if (input.lastIndexOf("[",0)==0) {
+					input = input.replace("[\"","").replace(/\", \"/g,";").replace("\"],","");
+					SelectAnimalSt(input);
+				} else {
+					var inputs = input.split(";");
+					if (inputs.length == 1) {
+						CenterAnimal(inputs[0].trim());
+						lastDescSt = "";
+					} else if (inputs.length >= 3) {
+						if (inputs[0]) SetRuleSt(inputs[0].trim());
+						CenterAnimal(inputs[1].trim());
+						lastDescSt = inputs[2].trim();
+					}
+				}
+			}
+			break;
+		case ".": RandomWorldWithSeed(lastSeed, lastDensity); break;
+		case ",": 
+			var input = window.prompt("Enter seed (rule; seed; density)", currRuleSt+"; "+lastSeed+"; "+lastDensity);
+			if (input) {
+				var inputs = input.split(";");
+				if (inputs.length >= 3) {
+					if (inputs[0]) SetRuleSt(inputs[0].trim());
+					if (inputs[1] && inputs[2]) RandomWorldWithSeed(inputs[1].trim(), inputs[2].trim());
+				}
+			}
+ 			break;
+		case "M": ToggleAuto("CAPTURE"); break;
+		case "N": SetScreenMode((screenMode+1) % 3); break;			
+		case "B": watchArea = window.prompt("Enter area code to watch"); break;
+	}
+	switch (actionCode) {
+		case 13: isRunning = !isRunning; break;
+	}
+	actionCode = 0;
+}
+function SetScreenMode(i) {
+	screenMode = i; 
+	switch (screenMode) {
+		case 0: TurnPanel("World",1); TurnPanel("Field",0); TurnPanel("Area",0); TurnPanel("Watch",0); break;
+		case 1: TurnPanel("World",0); TurnPanel("Field",0); TurnPanel("Area",0); TurnPanel("Watch",0); break;
+		case 2: TurnPanel("World",1); TurnPanel("Field",1); TurnPanel("Area",1); TurnPanel("Watch",1); break;
+	}
+}
+function ShowHelp() {
+	if (isShowingHelp) return;
+	var div = document.getElementById("Help");
+	if (!div) return;
+	var st = [];
+	st.push("Welcome to PRIMORDIA, the life simulator.");
+	st.push("");
+	st.push("This program simulates a petri dish of primordial life using <a href='http://en.wikipedia.org/wiki/Cellular_automata' target='_blank'>cellular automata</a>. The grid consists of "+H0+" x "+W0+" multi-state cells, their growth pattern is governed by simple rules. You may discover many curious life forms there.");
+	st.push("");
+	st.push("The rule is identified by code <b>[S/K+L,M,N]</b>.");
+	st.push("<b>S</b> is the maximum state of each cell (minimum is 0), state is represented from low to high by 0-9, a-z, A-Z.");
+	st.push("<b>K, L, M, N</b> are the growth pattern parameters. In each generation, a cell grows if its neighbourhood (i.e. sum of its 8 neighbouring cells) is within the growth range <b>K</b> to <b>K+L</b>, remains the same if within the stable range <b>K-M</b> to <b>K+L+N</b> minus the growth range, or shrinks if outside of these ranges.");
+	st.push("<a href='http://en.wikipedia.org/wiki/Conway%27s_Game_of_Life' target='_blank'>Conway's Game of Life</a> is equivalent to rule <b>[1/3+0,1,0]</b>, with states 0/1, stable range = 2 and growth range = 3.");
+	st.push("");
+	st.push("[-------========++++++++========----------]");
+	st.push("0         (<b>M</b>)   <b>K</b> (<b>L</b>)     (<b>N</b>)            8<b>S</b>");
+	st.push(" shrink  stable  growth  stable  shrink");
+	st.push("");
+	st.push("<span style='color:#d99'>gen</span> is the current generation number.");
+	st.push("<span style='color:#d99'>pop</span> is the population of the dish (number of living cells).");
+	st.push("<span style='color:#d99'>mass</span> is the total mass of the dish (sum of cell states).");
+	st.push("<span style='color:#d99'>seed</span> is the last random seed (rule;seed;density). Copy the text and press ',' to reproduce dish.");
+	st.push("");
+	st.push("<u>Keys</u>");
+	st.push("<table><tr valign=top><td><b>Enter");
+	st.push("Space");
+	st.push("G");
+	st.push("0");
+	st.push("1-5");
+	st.push(".");
+	st.push(",");
+	st.push("*");
+	st.push("</b></td><td width=10></td><td>Start/stop running");
+	st.push("Run once");
+	st.push("Run to entered generation");
+	st.push("Clear dish");
+	st.push("Random dish");
+	st.push("Random dish (last seed)");
+	st.push("Copy or paste random seed");
+	st.push("Auto-random when stablized");
+	st.push("</td><td width=50></td><td><b>+/-");
+	st.push("Q/A");
+	st.push("W/S");
+	st.push("E/D");
+	st.push("R/F");
+	st.push("[/]");
+	st.push("H");
+	st.push("</b></td><td width=10></td><td>Adjust <b>S</b> (max cell state)");
+	st.push("Adjust <b>K</b> (growth range start)");
+	st.push("Adjust <b>L</b> (growth range width)");
+	st.push("Adjust <b>M</b> (stable range width 1)");
+	st.push("Adjust <b>N</b> (stable range width 2)");
+	st.push("Double/half history step");
+	st.push("This help");
+	st.push("</td><td width=50></td><td><b>6-9");
+	st.push("Click animal item");
+	st.push("Click again");
+	st.push("P");
+	st.push("Select in dish");
+	st.push("/");
+	st.push("</b></td><td width=10></td><td>Place animal at random");
+	st.push("Place animal at center");
+	st.push("Rotate that animal");
+	st.push("Copy or paste animal code");
+	st.push("Copy cells");
+	st.push("Clear detected animals");
+	st.push("</td></tr></table>");
+	st.push("Press any key to continue");
+	div.style.display = "block";
+	div.innerHTML = st.join("<br>");
+	isShowingHelp = true;
+	isPause = true;
+}
+function HideHelp() {
+	var div = document.getElementById("Help");
+	if (!div) return;
+	div.style.display = "none";
+	isShowingHelp = false;
+	isPause = false;
+}
+</script>
