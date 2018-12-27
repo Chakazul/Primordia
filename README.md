@@ -1,3 +1,5 @@
+* Ready to run at https://chakazul.github.io/Primordia/Primordia.html
+
 # Primordia
 
 Conway's Game of Life with multiple states.  A precursor to Lenia.
